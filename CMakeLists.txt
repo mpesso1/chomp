@@ -35,7 +35,7 @@ include_directories (
 	src/trychomp/library
 )
 
-
+message(STATUS "hey")
 add_subdirectory(src/trychomp/library)
 add_subdirectory(src/trychomp/executable)
 
