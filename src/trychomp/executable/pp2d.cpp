@@ -43,7 +43,8 @@
    the end configuration.  Parameters could also be tuned a bit
    better.  Other than that, it works pretty nicely.
 */
-
+#include "ros/ros.h"
+#include "nav_msgs/Odometry.h"
 #include "gfx.hpp"
 #include <iostream>
 #include <vector>
@@ -77,6 +78,26 @@ static double const lambda (1.0); // weight of smoothness objective
 Matrix AA;			// metric
 Vector bb;			// acceleration bias for start and end config
 Matrix Ainv;			// inverse of AA
+
+////////////////////////////////////////////////////// MASON
+//turtlebot variables
+
+static Vector old_obj1_pos;
+static Vector old_obj2_pos;
+double orientation1;
+double orientation2;
+static double old_obj1_ore;
+static double old_obj2_ore;
+
+static double rotate1;
+static double rotate2;
+////////////////////////////////////////////////////// MASON
+// ros turtlebot variables
+static nav_msgs::Odometry obj1;
+static nav_msgs::Odometry obj2;
+ros::Publisher pub_pid1;
+ros::Publisher pub_pid2;
+
 
 //////////////////////////////////////////////////
 // gui stuff
@@ -207,6 +228,7 @@ static void init_chomp ()
   // cout << "AA\n" << AA
   //      << "\nAinv\n" << Ainv
   //      << "\nbb\n" << bb << "\n\n";
+
 }
 
 
@@ -284,10 +306,139 @@ static void cb_idle ()
     Vector const xdd (JJ * xidd.block (iq * cdim, 0, cdim , 1));
     Matrix const prj (Matrix::Identity (2, 2) - xdn * xdn.transpose()); // hardcoded planar case
     Vector const kappa (prj * xdd / pow (vel, 2.0));
-
+    
+    int c (0); // c indicates which object we are dealing with... 1 = object1 , 1 = object 2
+    static int loop;
+    static double rotate1_track;
+    static double rotate2_track;
     for (handle_s ** hh (handle); *hh != 0; ++hh) {
+      ++c;
       Vector delta (xx - (*hh)->point_);
       double const dist (delta.norm());
+
+      if (loop >= 2) {
+        if (c==1) {
+          if ((*hh)->point_ != old_obj1_pos) {
+            double disp_x1 = (*hh)->point_[0] - old_obj1_pos[0];
+            double disp_y1 = (*hh)->point_[1] - old_obj1_pos[1];
+            double ang1 = atan(disp_y1/disp_x1);
+
+
+            if (abs(disp_x1) == disp_x1 && abs(disp_y1) == disp_y1) {
+              orientation1 = ang1;
+            }
+            else if (abs(disp_x1) != disp_x1 && abs(disp_y1) == disp_y1) {
+              orientation1 = 3.141593 + ang1;
+            }
+            else if (abs(disp_x1) != disp_x1 && abs(disp_y1) != disp_y1) {
+              orientation1 = ang1 + 3.141593;
+            }
+            else if (abs(disp_x1) == disp_x1 && abs(disp_y1) != disp_y1) {
+              orientation1 = 2*3.141593 + ang1;
+            }
+
+            // calulate how much robot will need to rotate to point towards end position
+            rotate1 = orientation1 - rotate1_track; // how much robot object 1 will have to rotate to point in the direction it needs to go
+
+
+            rotate1_track = rotate1_track + rotate1;
+            if (rotate1_track >= 2*3.141593) {
+              rotate1_track = rotate1_track-2*3.141593;
+            }
+
+            if (abs(rotate1) != rotate1) {
+              rotate1 = 2*3.141593 + rotate1;
+            }
+
+            // calculate distance from start goal to end goal
+            Vector distance_obj1 = (*hh)->point_ - old_obj1_pos;
+            double dist1 = distance_obj1.norm()/8; // hard coded distance reducer.  Reduces maximum step to 3 meters
+            ROS_INFO("X distance: %f",disp_x1);
+            ROS_INFO("Y distance: %f",disp_y1);
+            ROS_INFO("Total Distance: %f",dist1);
+
+            // store data required to be published
+            obj1.pose.pose.position.x = dist1;
+            obj1.pose.pose.orientation.z = rotate1;
+
+            //publish to the topic
+            pub_pid1.publish(obj1);
+
+
+            //references for next iteration
+            old_obj1_pos = (*hh)->point_;
+            old_obj1_ore = orientation1;
+          }
+
+        }
+        if (c==2) {
+          if ((*hh)->point_ != old_obj2_pos) {
+            //std::cout << "We made it here" << std::endl;
+            double disp_x2 = (*hh)->point_[0] - old_obj2_pos[0];
+            double disp_y2 = (*hh)->point_[1] - old_obj2_pos[1];
+            double ang2 = atan(disp_y2/disp_x2);
+
+            if (abs(disp_x2) == disp_x2 && abs(disp_y2) == disp_y2) {
+              orientation2 = ang2;
+            }
+            else if (abs(disp_x2) != disp_x2 && abs(disp_y2) == disp_y2) {
+              orientation2 = 3.141593 + ang2;
+            }
+            else if (abs(disp_x2) != disp_x2 && abs(disp_y2) != disp_y2) {
+              orientation2 = ang2 + 3.141593;
+            }
+            else if (abs(disp_x2) == disp_x2 && abs(disp_y2) != disp_y2) {
+              orientation2 = 2*3.141593 + ang2;
+            }
+
+            // calulate how much robot will need to rotate to point towards end position
+            rotate2 = orientation2 - rotate2_track; // how much robot object 1 will have to rotate to point in the direction it needs to go
+
+
+            rotate2_track = rotate2_track + rotate2;
+            if (rotate2_track >= 2*3.141593) {
+              rotate2_track = rotate2_track-2*3.141593;
+            }
+
+            if (abs(rotate2) != rotate2) {
+              rotate2 = 2*3.141593 + rotate2;
+            }
+
+            // calculate the distance needed to travel from start goal to end goal
+            Vector distance_obj2 = (*hh)->point_ - old_obj2_pos;
+            double dist2 = distance_obj2.norm()/8;
+            ROS_INFO("X distance: %f",disp_x2);
+            ROS_INFO("Y distance: %f",disp_y2);
+            ROS_INFO("Total Distance: %f",dist2);
+            
+            // load data to be publised
+            obj2.pose.pose.position.x = dist2;
+            obj2.pose.pose.orientation.z = rotate2;
+
+            // publish data
+            pub_pid2.publish(obj2);
+
+            // provide reference for next iteration
+            old_obj2_pos = (*hh)->point_;
+            old_obj2_ore = orientation2;
+          }
+
+        }
+      }
+      else {
+        if (c==1) {
+          //std::cout << "checkpoint1" << std::endl;
+          old_obj1_pos = (*hh)->point_;
+          old_obj1_ore = 0;
+        }
+        if (c==2) {
+          //std::cout << "checkpoint2" << std::endl;
+          old_obj2_pos = (*hh)->point_;
+          old_obj2_ore = 0;
+        }
+      }
+      ++loop;
+
       if ((dist >= (*hh)->radius_) || (dist < 1e-9)) {
 	continue;
       }
@@ -300,7 +451,7 @@ static void cb_idle ()
   
   Vector dxi (Ainv * (nabla_obs + lambda * nabla_smooth));
   xi -= dxi / eta;
-  
+  //std::cout << std::endl << xi << std::endl;
   // end of "the" CHOMP iteration
   //////////////////////////////////////////////////
   
@@ -399,18 +550,30 @@ static void cb_mouse (double px, double py, int flags)
 }
 
 
-int main()
+int main(int argc, char **argv)
 {
-  struct timeval tt;
-  gettimeofday (&tt, NULL);
-  srand (tt.tv_usec);
-  
-  init_chomp();
-  update_robots();  
-  state = PAUSE;
-  
-  gfx::add_button ("jumble", cb_jumble);
-  gfx::add_button ("step", cb_step);
-  gfx::add_button ("run", cb_run);
-  gfx::main ("chomp", cb_idle, cb_draw, cb_mouse);
+
+  ros::init(argc,argv,"CHOMP");
+  ros::NodeHandle n;
+  pub_pid1 = n.advertise<nav_msgs::Odometry>("/turtlebot1/set_goal1",1000);
+  pub_pid2 = n.advertise<nav_msgs::Odometry>("/turtlebot2/set_goal2",1000);
+
+  ros::Rate loop_rate(10);
+
+  while(ros::ok()) {
+    struct timeval tt;
+    gettimeofday (&tt, NULL);
+    srand (tt.tv_usec);
+    
+    init_chomp();
+    update_robots();  
+    state = PAUSE;
+    gfx::add_button ("jumble", cb_jumble);
+    gfx::add_button ("step", cb_step);
+    gfx::add_button ("run", cb_run);
+    gfx::main ("chomp", cb_idle, cb_draw, cb_mouse);
+
+    loop_rate.sleep();
+  }
+
 }
