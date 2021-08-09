@@ -1,0 +1,4 @@
+<launch>
+    <node name="CHOMP" pkg="chomp" type="exe" />
+
+</launch>
